@@ -1,0 +1,160 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Classroom Pulse</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Atkinson+Hyperlegible:wght@400;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/qrcode-generator/1.4.4/qrcode.min.js"></script>
+<style>
+  :root {
+    --paper: #f3f6fa; --ink: #16233f; --muted: #5b6784; --line: #d5dce8;
+    --correct: #2f8f5b; --partial: #e0a800; --incorrect: #c8435a; --filtered: #aab3c5;
+  }
+  * { box-sizing: border-box; }
+  body { margin: 0; background: var(--paper); color: var(--ink);
+    font-family: "Atkinson Hyperlegible", system-ui, sans-serif; line-height: 1.4; }
+  main { max-width: 1200px; margin: 0 auto; padding: 32px 24px 48px; }
+  header { display: grid; grid-template-columns: 1fr auto; gap: 24px; align-items: start; }
+  h1 { font-size: clamp(2rem, 4.5vw, 3.4rem); line-height: 1.08; margin: 0 0 8px; max-width: 18ch; }
+  .sub { color: var(--muted); margin: 0; }
+  .join { text-align: center; background: #fff; border: 2px solid var(--ink); border-radius: 14px; padding: 12px; }
+  .join svg { display: block; width: 150px; height: 150px; }
+  .join p { margin: 6px 0 0; font-size: .85rem; max-width: 150px; word-break: break-all; }
+
+  .bar { display: flex; height: 72px; margin: 36px 0 10px; border-radius: 10px; overflow: hidden;
+    background: #e4e9f1; }
+  .bar div { transition: flex-grow .5s ease; display: flex; align-items: center; justify-content: center;
+    color: #fff; font-weight: 700; font-size: 1.4rem; min-width: 0; overflow: hidden; }
+  .legend { display: flex; flex-wrap: wrap; gap: 20px; color: var(--muted); }
+  .legend span::before { content: ""; display: inline-block; width: 12px; height: 12px;
+    border-radius: 3px; margin-right: 6px; vertical-align: -1px; background: var(--c); }
+
+  .grid { display: grid; grid-template-columns: 1fr 1.3fr; gap: 32px; margin-top: 36px; }
+  h2 { font-size: 1.2rem; margin: 0 0 12px; }
+  .misc li { list-style: none; margin: 0 0 14px; }
+  .misc ul { padding: 0; margin: 0; }
+  .misc .row { display: flex; justify-content: space-between; font-weight: 700; }
+  .misc .track { height: 10px; background: #e4e9f1; border-radius: 5px; margin-top: 4px; }
+  .misc .fill { height: 100%; background: var(--ink); border-radius: 5px; transition: width .5s ease; }
+  .empty { color: var(--muted); }
+
+  .feed { list-style: none; padding: 0; margin: 0; max-height: 420px; overflow-y: auto; }
+  .feed li { border-left: 5px solid var(--c); background: #fff; padding: 10px 14px; margin-bottom: 8px; border-radius: 0 8px 8px 0; }
+  .feed .who { font-size: .85rem; color: var(--muted); display: flex; justify-content: space-between; gap: 8px; }
+  .feed .txt { margin: 2px 0 4px; }
+  .feed .tag { font-size: .85rem; color: var(--muted); }
+  .feed .off { opacity: .55; }
+
+  footer { margin-top: 32px; display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; color: var(--muted); }
+  .latency { font-size: 1.1rem; color: var(--ink); font-weight: 700; }
+  button { font: inherit; background: none; border: 1.5px solid var(--muted); color: var(--muted);
+    border-radius: 8px; padding: 6px 14px; cursor: pointer; }
+  button:focus-visible { outline: 3px solid var(--partial); outline-offset: 2px; }
+  .mode { font-size: .85rem; }
+
+  @media (max-width: 760px) { header, .grid { grid-template-columns: 1fr; } .join { justify-self: start; } }
+  @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
+</style>
+</head>
+<body>
+<main>
+  <header>
+    <div>
+      <h1 id="prompt">Loading question…</h1>
+      <p class="sub" id="count">Waiting for the first answer.</p>
+    </div>
+    <div class="join">
+      <div id="qr"></div>
+      <p>Scan to answer<br><span id="url"></span></p>
+    </div>
+  </header>
+
+  <div class="bar" id="bar" aria-label="Class results">
+    <div style="background:var(--correct);flex-grow:0" id="b-correct"></div>
+    <div style="background:var(--partial);flex-grow:0" id="b-partial"></div>
+    <div style="background:var(--incorrect);flex-grow:0" id="b-incorrect"></div>
+  </div>
+  <div class="legend">
+    <span style="--c:var(--correct)">Correct</span>
+    <span style="--c:var(--partial)">Partly right</span>
+    <span style="--c:var(--incorrect)">Not yet</span>
+    <span style="--c:var(--filtered)" id="filtered">0 filtered as off-topic</span>
+  </div>
+
+  <div class="grid">
+    <section class="misc">
+      <h2>What the room gets wrong</h2>
+      <ul id="misc"><li class="empty">Misconceptions show up here as answers arrive.</li></ul>
+    </section>
+    <section>
+      <h2>Answers as they land</h2>
+      <ul class="feed" id="feed"></ul>
+    </section>
+  </div>
+
+  <footer>
+    <div>Median judgment time: <span class="latency" id="lat">–</span> <span class="mode" id="mode"></span></div>
+    <button id="reset" type="button">Clear answers</button>
+  </footer>
+</main>
+
+<script>
+  const $ = (id) => document.getElementById(id);
+  const answerUrl = location.origin + "/answer";
+  $("url").textContent = answerUrl.replace(/^https?:\/\//, "");
+  try {
+    const qr = qrcode(0, "M"); qr.addData(answerUrl); qr.make();
+    $("qr").innerHTML = qr.createSvgTag({ cellSize: 4, margin: 0, scalable: true });
+  } catch { $("qr").textContent = ""; }
+
+  let labels = {};
+  fetch("/api/question").then(r => r.json()).then(q => {
+    $("prompt").textContent = q.prompt;
+    for (const m of q.misconceptions) labels[m.id] = m.label;
+    labels.other = "Other wrong idea";
+  });
+
+  const colorFor = (j) => j.off_topic ? "var(--filtered)" :
+    ({ correct: "var(--correct)", partial: "var(--partial)", incorrect: "var(--incorrect)" }[j.correctness] || "var(--filtered)");
+  const esc = (s) => String(s).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+
+  async function refresh() {
+    try {
+      const { stats: s, answers, mock } = await (await fetch("/api/state")).json();
+      const graded = s.correct + s.partial + s.incorrect;
+      $("count").textContent = s.total ? `${s.total} answers in, ${graded} graded.` : "Waiting for the first answer.";
+      for (const k of ["correct", "partial", "incorrect"]) {
+        const el = $("b-" + k); el.style.flexGrow = s[k];
+        el.textContent = graded && s[k] ? Math.round(100 * s[k] / graded) + "%" : "";
+      }
+      $("filtered").textContent = `${s.filtered} filtered as off-topic`;
+      $("lat").textContent = s.median_latency_ms == null ? "–" : s.median_latency_ms + " ms";
+      $("mode").textContent = mock ? "(mock mode)" : "";
+
+      const entries = Object.entries(s.misconceptions).sort((a, b) => b[1] - a[1]);
+      const max = entries.length ? entries[0][1] : 1;
+      $("misc").innerHTML = entries.length ? entries.map(([id, n]) => `
+        <li><div class="row"><span>${esc(labels[id] || id)}</span><span>${n}</span></div>
+        <div class="track"><div class="fill" style="width:${100 * n / max}%"></div></div></li>`).join("")
+        : '<li class="empty">Misconceptions show up here as answers arrive.</li>';
+
+      $("feed").innerHTML = answers.map(a => {
+        const j = a.judgment;
+        const tag = j.off_topic ? "Filtered: off-topic" :
+          `${j.correctness ?? "?"}${j.misconception && j.misconception !== "none" ? " · " + (labels[j.misconception] || j.misconception) : ""} · ${j.understanding ?? ""}`;
+        return `<li style="--c:${colorFor(j)}" class="${j.off_topic ? "off" : ""}">
+          <div class="who"><span>${esc(a.name || "Anonymous")}</span><span>${a.latency_ms} ms</span></div>
+          <div class="txt">${esc(a.text)}</div><div class="tag">${esc(tag)}</div></li>`;
+      }).join("");
+    } catch {}
+  }
+  refresh(); setInterval(refresh, 1000);
+
+  $("reset").onclick = async () => {
+    if (confirm("Clear all answers?")) { await fetch("/api/reset", { method: "POST" }); refresh(); }
+  };
+</script>
+</body>
+</html>

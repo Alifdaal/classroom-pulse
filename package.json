@@ -1,0 +1,13 @@
+{
+  "name": "classroom-pulse",
+  "version": "0.1.0",
+  "description": "Live misconception radar for classrooms, powered by TypeSafe Jev typed decisions.",
+  "license": "MIT",
+  "main": "server.js",
+  "scripts": {
+    "start": "node --env-file=.env server.js",
+    "mock": "MOCK=1 node server.js",
+    "seed": "node seed.js"
+  },
+  "engines": { "node": ">=20.6" }
+}
