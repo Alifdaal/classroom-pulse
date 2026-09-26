@@ -36,6 +36,8 @@
   .misc li { list-style: none; margin: 0 0 14px; }
   .misc ul { padding: 0; margin: 0; }
   .misc .row { display: flex; justify-content: space-between; font-weight: 700; }
+  .reading { margin-top: 18px; padding: 12px 14px; background: #fff; border-radius: 8px; border-left: 5px solid var(--ink); font-size: .95rem; }
+  .reading small { color: var(--muted); }
   .misc .track { height: 10px; background: #e4e9f1; border-radius: 5px; margin-top: 4px; }
   .misc .fill { height: 100%; background: var(--ink); border-radius: 5px; transition: width .5s ease; }
   .empty { color: var(--muted); }
@@ -87,6 +89,7 @@
     <section class="misc">
       <h2>What the room gets wrong</h2>
       <ul id="misc"><li class="empty">Misconceptions show up here as answers arrive.</li></ul>
+      <div class="reading" id="reading" hidden></div>
     </section>
     <section>
       <h2>Answers as they land</h2>
@@ -122,7 +125,7 @@
 
   async function refresh() {
     try {
-      const { stats: s, answers, mock } = await (await fetch("/api/state")).json();
+      const { stats: s, answers, mock, reading } = await (await fetch("/api/state")).json();
       const graded = s.correct + s.partial + s.incorrect;
       $("count").textContent = s.total ? `${s.total} answers in, ${graded} graded.` : "Waiting for the first answer.";
       for (const k of ["correct", "partial", "incorrect"]) {
@@ -139,6 +142,11 @@
         <li><div class="row"><span>${esc(labels[id] || id)}</span><span>${n}</span></div>
         <div class="track"><div class="fill" style="width:${100 * n / max}%"></div></div></li>`).join("")
         : '<li class="empty">Misconceptions show up here as answers arrive.</li>';
+
+      const r = reading;
+      $("reading").hidden = !r;
+      if (r) $("reading").innerHTML = `<strong>Suggested reading for "${esc(r.misconception)}"</strong><br>
+        <a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a> <small>(${esc(r.license)})</small>`;
 
       $("feed").innerHTML = answers.map(a => {
         const j = a.judgment;

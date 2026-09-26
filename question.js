@@ -10,12 +10,22 @@ module.exports.QUESTION = {
       label: "Earth is closer to the Sun",
       description: "Believes summer happens because Earth is closer to the Sun",
       hint: "If distance caused summer, both hemispheres would have summer at the same time. Do they?",
+      reading: {
+        title: "OpenStax Astronomy 2e, 4.2 The Seasons",
+        url: "https://openstax.org/books/astronomy-2e/pages/4-2-the-seasons",
+        license: "CC BY 4.0",
+      },
     },
     {
       id: "sun_output_changes",
       label: "The Sun gets hotter",
       description: "Believes the Sun itself gives off more heat in summer",
       hint: "The Sun's output barely changes over a year. What changes about how its light reaches you?",
+      reading: {
+        title: "OpenStax Astronomy 2e, 4.2 The Seasons",
+        url: "https://openstax.org/books/astronomy-2e/pages/4-2-the-seasons",
+        license: "CC BY 4.0",
+      },
     },
   ],
   genericHint: "Think about the angle sunlight hits the ground at in July versus January.",

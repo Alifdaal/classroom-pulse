@@ -169,6 +169,13 @@ function stats() {
   };
 }
 
+// The reading for the misconception the room shares most (null until one appears).
+function suggestedReading(misc) {
+  const top = Object.entries(misc).sort((a, b) => b[1] - a[1])[0];
+  const m = top && QUESTION.misconceptions.find((x) => x.id === top[0]);
+  return m && m.reading ? { misconception: m.label, ...m.reading } : null;
+}
+
 // ---------- HTTP ----------
 function send(res, status, data, type = "application/json") {
   res.writeHead(status, { "Content-Type": type, "Cache-Control": "no-store" });
@@ -197,7 +204,7 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, { prompt: QUESTION.prompt, misconceptions: QUESTION.misconceptions.map(({ id, label }) => ({ id, label })) });
     }
     if (req.method === "GET" && url.pathname === "/api/state") {
-      return send(res, 200, { mock: MOCK, stats: stats(), answers: answers.slice(-30).reverse() });
+      return send(res, 200, { mock: MOCK, stats: stats(), reading: suggestedReading(stats().misconceptions), answers: answers.slice(-30).reverse() });
     }
     if (req.method === "POST" && url.pathname === "/api/answer") {
       const { name = "", text = "" } = JSON.parse((await readBody(req)) || "{}");
