@@ -5,7 +5,7 @@
 const http = require("node:http");
 const fs = require("node:fs");
 const path = require("node:path");
-const { QUESTION } = require("./question.js");
+const { QUESTIONS } = require("./question.js");
 
 const PORT = process.env.PORT || 3000;
 const MOCK = process.env.MOCK === "1" || !process.env.TYPESAFE_API_KEY;
@@ -16,9 +16,10 @@ const JEV_MODEL = process.env.TYPESAFE_MODEL || "jev-1.13.0"; // pinned so behav
 const GMI = process.env.GMI_API_KEY && process.env.GMI_BASE_URL && process.env.GMI_MODEL;
 
 const answers = []; // in-memory; resets on restart (fine for a live demo)
+let round = 0; // index into QUESTIONS; the teacher advances it
 
 // ---------- Jev ----------
-function buildJevRequest(studentAnswer) {
+function buildJevRequest(QUESTION, studentAnswer) {
   const misconceptionCriteria = { none: "No misconception present" };
   for (const m of QUESTION.misconceptions) misconceptionCriteria[m.id] = m.description;
   misconceptionCriteria.other = "A wrong idea not listed above";
@@ -59,7 +60,7 @@ function buildJevRequest(studentAnswer) {
   };
 }
 
-async function callJev(studentAnswer) {
+async function callJev(question, studentAnswer) {
   if (MOCK) return mockJev(studentAnswer);
   const res = await fetch(JEV_URL, {
     method: "POST",
@@ -67,7 +68,7 @@ async function callJev(studentAnswer) {
       Authorization: `Bearer ${process.env.TYPESAFE_API_KEY}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(buildJevRequest(studentAnswer)),
+    body: JSON.stringify(buildJevRequest(question, studentAnswer)),
   });
   const body = await res.text();
   if (!res.ok) throw new Error(`Jev ${res.status}: ${body.slice(0, 300)}`);
@@ -103,7 +104,7 @@ function normalize(raw) {
 }
 
 // ---------- Hint (GMI Cloud if configured, else fixed template) ----------
-async function makeHint(judgment) {
+async function makeHint(QUESTION, judgment) {
   if (judgment.off_topic || judgment.correctness === "correct") return null;
   const m = QUESTION.misconceptions.find((x) => x.id === judgment.misconception);
   const template = m ? m.hint : QUESTION.genericHint;
@@ -133,7 +134,7 @@ async function makeHint(judgment) {
 function mockJev(text) {
   const t = text.toLowerCase();
   const troll = /ignore|mark me|lol|asdf|instruction/.test(t) || t.trim().length < 3;
-  const tilt = /tilt|angle|axis|direct/.test(t);
+  const tilt = /tilt|angle|axis|direct|opposite|hemisphere|lean/.test(t);
   const close = /closer|nearer|distance|far|orbit/.test(t);
   const hotter = /sun (gets|is) hotter|burns more|output/.test(t);
   const choice = (c, conf) => ({ type: "choice", choice: c, confidence: conf });
@@ -149,24 +150,32 @@ function mockJev(text) {
 }
 
 // ---------- Stats ----------
-function stats() {
-  const valid = answers.filter((a) => !a.judgment.off_topic);
+function stats(r) {
+  const inRound = answers.filter((a) => a.round === r);
+  const valid = inRound.filter((a) => !a.judgment.off_topic);
   const count = (key, val) => valid.filter((a) => a.judgment[key] === val).length;
   const misc = {};
   for (const a of valid) {
     const m = a.judgment.misconception;
     if (m && m !== "none") misc[m] = (misc[m] || 0) + 1;
   }
-  const lat = answers.map((a) => a.latency_ms).sort((a, b) => a - b);
+  const lat = inRound.map((a) => a.latency_ms).sort((a, b) => a - b);
   return {
-    total: answers.length,
-    filtered: answers.length - valid.length,
+    total: inRound.length,
+    filtered: inRound.length - valid.length,
     correct: count("correctness", "correct"),
     partial: count("correctness", "partial"),
     incorrect: count("correctness", "incorrect"),
     misconceptions: misc,
     median_latency_ms: lat.length ? lat[Math.floor(lat.length / 2)] : null,
   };
+}
+
+// The re-teach note and reading for the misconception round 1 shares most (null until one appears).
+function suggestedReading(misc) {
+  const top = Object.entries(misc).sort((a, b) => b[1] - a[1])[0];
+  const m = top && QUESTIONS[0].misconceptions.find((x) => x.id === top[0]);
+  return m ? { misconception: m.label, reteach: m.reteach, ...m.reading } : null;
 }
 
 // ---------- HTTP ----------
@@ -194,26 +203,45 @@ const server = http.createServer(async (req, res) => {
       return send(res, 200, fs.readFileSync(path.join(__dirname, "public/student.html")), "text/html");
     }
     if (req.method === "GET" && url.pathname === "/api/question") {
-      return send(res, 200, { prompt: QUESTION.prompt, misconceptions: QUESTION.misconceptions.map(({ id, label }) => ({ id, label })) });
+      const q = QUESTIONS[round];
+      return send(res, 200, { round: round + 1, rounds: QUESTIONS.length, prompt: q.prompt, misconceptions: q.misconceptions.map(({ id, label }) => ({ id, label })) });
     }
     if (req.method === "GET" && url.pathname === "/api/state") {
-      return send(res, 200, { mock: MOCK, stats: stats(), answers: answers.slice(-30).reverse() });
+      const first = stats(0);
+      return send(res, 200, {
+        mock: MOCK,
+        round: round + 1,
+        rounds: QUESTIONS.length,
+        prompt: QUESTIONS[round].prompt,
+        stats: stats(round),
+        before: round > 0 ? first : null,
+        reading: suggestedReading(first.misconceptions),
+        answers: answers.filter((a) => a.round === round).slice(-30).reverse(),
+      });
     }
     if (req.method === "POST" && url.pathname === "/api/answer") {
       const { name = "", text = "" } = JSON.parse((await readBody(req)) || "{}");
       const clean = String(text).slice(0, 500).trim();
       if (!clean) return send(res, 400, { error: "Write an answer before sending." });
       const t0 = Date.now();
-      const raw = await callJev(clean);
+      const q = QUESTIONS[round];
+      const raw = await callJev(q, clean);
       const latency_ms = Date.now() - t0;
       const judgment = normalize(raw);
-      const hint = await makeHint(judgment);
-      const entry = { id: answers.length + 1, name: String(name).slice(0, 30), text: clean, judgment, hint, latency_ms, at: Date.now() };
+      const hint = await makeHint(q, judgment);
+      const entry = { id: answers.length + 1, name: String(name).slice(0, 30), text: clean, judgment, hint, latency_ms, round, at: Date.now() };
       answers.push(entry);
       return send(res, 200, { judgment, hint, latency_ms });
     }
+    if (req.method === "POST" && url.pathname === "/api/round") {
+      const { round: n } = JSON.parse((await readBody(req)) || "{}");
+      if (!Number.isInteger(n) || n < 1 || n > QUESTIONS.length) return send(res, 400, { error: "No such round." });
+      round = n - 1;
+      return send(res, 200, { round: n });
+    }
     if (req.method === "POST" && url.pathname === "/api/reset") {
       answers.length = 0;
+      round = 0;
       return send(res, 200, { ok: true });
     }
     send(res, 404, { error: "Not found" });

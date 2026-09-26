@@ -36,6 +36,15 @@
   .misc li { list-style: none; margin: 0 0 14px; }
   .misc ul { padding: 0; margin: 0; }
   .misc .row { display: flex; justify-content: space-between; font-weight: 700; }
+  .reading { margin-top: 18px; padding: 12px 14px; background: #fff; border-radius: 8px; border-left: 5px solid var(--ink); font-size: .95rem; }
+  .reading small { color: var(--muted); }
+  .reading p { margin: 6px 0 10px; }
+  .reading button { font: inherit; font-weight: 700; padding: 8px 14px; border: 0; border-radius: 6px; background: var(--ink); color: #fff; cursor: pointer; }
+  .compare table { width: 100%; border-collapse: collapse; margin-top: 6px; }
+  .compare td { padding: 4px 0; }
+  .compare td:last-child { text-align: right; font-weight: 700; }
+  .compare .good { color: var(--correct); }
+  .compare .bad { color: var(--incorrect); }
   .misc .track { height: 10px; background: #e4e9f1; border-radius: 5px; margin-top: 4px; }
   .misc .fill { height: 100%; background: var(--ink); border-radius: 5px; transition: width .5s ease; }
   .empty { color: var(--muted); }
@@ -87,6 +96,8 @@
     <section class="misc">
       <h2>What the room gets wrong</h2>
       <ul id="misc"><li class="empty">Misconceptions show up here as answers arrive.</li></ul>
+      <div class="reading" id="reading" hidden></div>
+      <div class="reading compare" id="compare" hidden></div>
     </section>
     <section>
       <h2>Answers as they land</h2>
@@ -122,7 +133,7 @@
 
   async function refresh() {
     try {
-      const { stats: s, answers, mock } = await (await fetch("/api/state")).json();
+      const { stats: s, answers, mock, reading, round, rounds, prompt, before } = await (await fetch("/api/state")).json();
       const graded = s.correct + s.partial + s.incorrect;
       $("count").textContent = s.total ? `${s.total} answers in, ${graded} graded.` : "Waiting for the first answer.";
       for (const k of ["correct", "partial", "incorrect"]) {
@@ -139,6 +150,34 @@
         <li><div class="row"><span>${esc(labels[id] || id)}</span><span>${n}</span></div>
         <div class="track"><div class="fill" style="width:${100 * n / max}%"></div></div></li>`).join("")
         : '<li class="empty">Misconceptions show up here as answers arrive.</li>';
+
+      $("prompt").textContent = (rounds > 1 ? `Round ${round}: ` : "") + prompt;
+
+      const r = reading;
+      $("reading").hidden = !r;
+      if (r) {
+        $("reading").innerHTML = `<strong>Most common wrong idea: ${esc(r.misconception)}</strong>
+          <p>${esc(r.reteach)}</p>
+          <a href="${esc(r.url)}" target="_blank" rel="noopener">${esc(r.title)}</a> <small>(${esc(r.license)})</small>
+          ${round < rounds ? '<p><button type="button" id="next">Start round ' + (round + 1) + ' (follow-up question)</button></p>' : ""}`;
+        const next = $("next");
+        if (next) next.onclick = () => fetch("/api/round", { method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ round: round + 1 }) }).then(refresh);
+      }
+
+      $("compare").hidden = !before;
+      if (before) {
+        const graded = (x) => x.correct + x.partial + x.incorrect;
+        const pct = (n, x) => graded(x) ? Math.round(100 * n / graded(x)) : 0;
+        const row = (label, b, a, goodWhenUp) => {
+          const d = a - b, cls = d === 0 ? "" : (d > 0) === goodWhenUp ? "good" : "bad";
+          return `<tr><td>${esc(label)}</td><td class="${cls}">${b}% → ${a}%</td></tr>`;
+        };
+        const ids = Object.keys(before.misconceptions);
+        $("compare").innerHTML = `<strong>Before → after the re-teach</strong><table>` +
+          row("Answered correctly", pct(before.correct, before), pct(s.correct, s), true) +
+          ids.map(id => row(labels[id] || id, pct(before.misconceptions[id], before), pct(s.misconceptions[id] || 0, s), false)).join("") +
+          `</table>`;
+      }
 
       $("feed").innerHTML = answers.map(a => {
         const j = a.judgment;

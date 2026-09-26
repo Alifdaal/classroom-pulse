@@ -39,7 +39,19 @@
 </main>
 <script>
   const $ = (id) => document.getElementById(id);
-  fetch("/api/question").then(r => r.json()).then(q => $("prompt").textContent = q.prompt);
+  // Poll so students see the follow-up question when the teacher starts the next round.
+  let currentRound = null;
+  async function syncQuestion() {
+    try {
+      const q = await (await fetch("/api/question")).json();
+      if (q.round !== currentRound) {
+        if (currentRound !== null) { $("text").value = ""; $("result").style.display = "none"; $("send").textContent = "Send answer"; }
+        currentRound = q.round;
+        $("prompt").textContent = q.prompt;
+      }
+    } catch {}
+  }
+  syncQuestion(); setInterval(syncQuestion, 3000);
   const verdict = {
     correct: ["Nailed it", "var(--correct)"],
     partial: ["Partly there", "var(--partial)"],
